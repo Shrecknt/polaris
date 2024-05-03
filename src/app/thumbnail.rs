@@ -3,6 +3,7 @@ use std::cmp;
 use std::collections::hash_map::DefaultHasher;
 use std::fs::{self, File};
 use std::hash::{Hash, Hasher};
+use std::io::Cursor;
 use std::path::{Path, PathBuf};
 
 use crate::utils::{get_audio_format, AudioFormat};
@@ -21,6 +22,10 @@ pub enum Error {
 	Metaflac(PathBuf, metaflac::Error),
 	#[error("Could not read thumbnail from mp4 file in `{0}`:\n\n{1}")]
 	Mp4aMeta(PathBuf, mp4ameta::Error),
+	#[error("Could not read thumbnail from opus file in `{0}`:\n\n{1}")]
+	Opus(PathBuf, opus_headers::ParseError),
+	#[error("Could not read thumbnail from ogg file in `{0}`:\n\n{1}")]
+	Vorbis(PathBuf, lewton::VorbisError),
 	#[error("This file format is not supported: {0}")]
 	UnsupportedFormat(&'static str),
 }
@@ -206,12 +211,73 @@ fn read_mp4(path: &Path) -> Result<DynamicImage, Error> {
 		.and_then(|d| image::load_from_memory(d.data).map_err(|e| Error::Image(path.to_owned(), e)))
 }
 
-fn read_vorbis(_: &Path) -> Result<DynamicImage, Error> {
-	Err(Error::UnsupportedFormat("vorbis"))
+fn read_vorbis(path: &Path) -> Result<DynamicImage, Error> {
+	use base64::prelude::*;
+
+	let cursor = Cursor::new(std::fs::read(path).map_err(|e| Error::Io(path.to_owned(), e))?);
+	let reader = lewton::inside_ogg::OggStreamReader::new(cursor)
+		.map_err(|e| Error::Vorbis(path.to_owned(), e))?;
+
+	for (key, value) in reader.comment_hdr.comment_list {
+		if key == "METADATA_BLOCK_PICTURE" {
+			let mut packet = Cursor::new(BASE64_STANDARD.decode(&value).unwrap());
+
+			if let Ok(picture_data) = read_flac_picture_data(&mut packet) {
+				return Ok(image::load_from_memory(&picture_data).unwrap());
+			}
+		}
+	}
+
+	Err(Error::EmbeddedArtworkNotFound(path.to_owned()))
 }
 
-fn read_opus(_: &Path) -> Result<DynamicImage, Error> {
-	Err(Error::UnsupportedFormat("opus"))
+fn read_opus(path: &Path) -> Result<DynamicImage, Error> {
+	use base64::prelude::*;
+
+	let headers =
+		opus_headers::parse_from_path(path).map_err(|e| Error::Opus(path.to_owned(), e))?;
+
+	for (key, value) in headers.comments.user_comments {
+		if key == "METADATA_BLOCK_PICTURE" {
+			let mut packet: Cursor<Vec<u8>> = Cursor::new(BASE64_STANDARD.decode(&value).unwrap());
+
+			if let Ok(picture_data) = read_flac_picture_data(&mut packet) {
+				return Ok(image::load_from_memory(&picture_data).unwrap());
+			}
+		}
+	}
+
+	Err(Error::EmbeddedArtworkNotFound(path.to_owned()))
+}
+
+fn read_flac_picture_data(reader: &mut impl std::io::Read) -> Result<Vec<u8>, std::io::Error> {
+	// https://xiph.org/flac/format.html#metadata_block_picture
+
+	let mut picture_type = [0; 4];
+	reader.read_exact(&mut picture_type)?;
+	let mut mime_type_length = [0; 4];
+	reader.read_exact(&mut mime_type_length)?;
+	let mut mime_type = vec![0; u32::from_be_bytes(mime_type_length) as usize];
+	reader.read_exact(&mut mime_type)?;
+	let mut description_length = [0; 4];
+	reader.read_exact(&mut description_length)?;
+	let mut description = vec![0; u32::from_be_bytes(description_length) as usize];
+	reader.read_exact(&mut description)?;
+	let mut width = [0; 4];
+	reader.read_exact(&mut width)?;
+	let mut height = [0; 4];
+	reader.read_exact(&mut height)?;
+	let mut color_depth = [0; 4];
+	reader.read_exact(&mut color_depth)?;
+	let mut num_colors = [0; 4];
+	reader.read_exact(&mut num_colors)?;
+
+	let mut picture_data_length = [0; 4];
+	reader.read_exact(&mut picture_data_length)?;
+	let mut picture_data = vec![0; u32::from_be_bytes(picture_data_length) as usize];
+	reader.read_exact(&mut picture_data)?;
+
+	Ok(picture_data)
 }
 
 #[cfg(test)]

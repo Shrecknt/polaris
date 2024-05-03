@@ -106,6 +106,8 @@ impl ResponseError for APIError {
 			APIError::ThumbnailId3Decoding(_, _) => StatusCode::INTERNAL_SERVER_ERROR,
 			APIError::ThumbnailImageDecoding(_, _) => StatusCode::INTERNAL_SERVER_ERROR,
 			APIError::ThumbnailMp4Decoding(_, _) => StatusCode::INTERNAL_SERVER_ERROR,
+			APIError::ThumbnailOpusDecoding(_, _) => StatusCode::INTERNAL_SERVER_ERROR,
+			APIError::ThumbnailOggDecoding(_, _) => StatusCode::INTERNAL_SERVER_ERROR,
 			APIError::TomlDeserialization(_) => StatusCode::INTERNAL_SERVER_ERROR,
 			APIError::UnsupportedThumbnailFormat(_) => StatusCode::INTERNAL_SERVER_ERROR,
 			APIError::UserNotFound => StatusCode::NOT_FOUND,

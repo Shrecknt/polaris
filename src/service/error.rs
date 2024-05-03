@@ -67,6 +67,10 @@ pub enum APIError {
 	ThumbnailImageDecoding(PathBuf, image::error::ImageError),
 	#[error("Could not decode thumbnail from mp4 file `{0}`:\n\n{1}")]
 	ThumbnailMp4Decoding(PathBuf, mp4ameta::Error),
+	#[error("Could not decode thumbnail from opus file `{0}`:\n\n{1}")]
+	ThumbnailOpusDecoding(PathBuf, opus_headers::ParseError),
+	#[error("Could not decode thumbnail from ogg file `{0}`:\n\n{1}")]
+	ThumbnailOggDecoding(PathBuf, lewton::VorbisError),
 	#[error("Toml deserialization error:\n\n{0}")]
 	TomlDeserialization(toml::de::Error),
 	#[error("Unsupported thumbnail format: `{0}`")]
@@ -199,6 +203,8 @@ impl From<thumbnail::Error> for APIError {
 			thumbnail::Error::Io(p, e) => APIError::Io(p, e),
 			thumbnail::Error::Metaflac(p, e) => APIError::ThumbnailFlacDecoding(p, e),
 			thumbnail::Error::Mp4aMeta(p, e) => APIError::ThumbnailMp4Decoding(p, e),
+			thumbnail::Error::Opus(p, e) => APIError::ThumbnailOpusDecoding(p, e),
+			thumbnail::Error::Vorbis(p, e) => APIError::ThumbnailOggDecoding(p, e),
 			thumbnail::Error::UnsupportedFormat(f) => APIError::UnsupportedThumbnailFormat(f),
 		}
 	}
